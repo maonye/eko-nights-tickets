@@ -46,8 +46,10 @@ def build_mcp(service) -> FastMCP:
         - several recipients: exactly one entry per ticket; use phone 'me' for the buyer's own ticket
         Tickets are not sent automatically; the buyer must share each ticket link with the right
         holder, or the holder can message this number and ask for "my tickets".
-        Returns payment_url and reference. Send the link, the total and how long the hold lasts.
-        On ok=false, follow error.next_step."""
+        Returns `payment_url` and `reference`. Save the `reference` value (starts with `EKO-`) and
+        pass it to `check_payment` when the customer replies "paid". Do not extract a reference from
+        the Paystack URL — the URL ends with an access code, not the order reference. Send the link,
+        the total, the reference and how long the hold lasts. On ok=false, follow error.next_step."""
         recips = [r.model_dump() if hasattr(r, "model_dump") else dict(r) for r in (recipients or [])]
         return service.create_order(event_id=event_id, tier_id=tier_id, quantity=quantity,
                                     buyer_phone=buyer_phone, recipients=recips, buyer_email=buyer_email)
@@ -55,11 +57,13 @@ def build_mcp(service) -> FastMCP:
     @mcp.tool()
     def check_payment(reference: str, buyer_phone: str) -> dict:
         """Verify an order's payment with Paystack and, if it succeeded, issue the tickets.
-        Call when the customer says they have paid, or asks about an order. Safe to call more than
-        once: tickets are never issued twice. On success, send the buyer their own ticket codes and
-        links, list the other assigned holders, and tell the buyer to share each ticket link with the
-        right person. Holders can also message this number and ask for "my tickets". On ok=false,
-        follow error.next_step; if error.escalate is true, hand the conversation to a human."""
+        Call when the customer says they have paid, or asks about an order. Use the exact `reference`
+        returned by `create_order` for this conversation; never use a code extracted from the Paystack
+        payment URL. Safe to call more than once: tickets are never issued twice. On success, send the
+        buyer their own ticket codes and links, list the other assigned holders, and tell the buyer to
+        share each ticket link with the right person. Holders can also message this number and ask for
+        "my tickets". On ok=false, follow error.next_step; if error.escalate is true, hand the
+        conversation to a human."""
         return service.check_payment(reference=reference, buyer_phone=buyer_phone)
 
     @mcp.tool()

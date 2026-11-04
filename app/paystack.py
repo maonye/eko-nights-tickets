@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 from dataclasses import dataclass, field
 
 import httpx
@@ -94,14 +95,14 @@ class FakePaystack:
         if self.fail_initialize:
             raise PaystackError("Simulated Paystack outage")
         self.initialized[reference] = amount_kobo
-        # Keep the signature identical to PaystackClient.initialize; include key params in the
-        # fake URL so tests can inspect them without parsing metadata. metadata is intentionally
-        # not serialized into the URL to keep URLs short; it is accepted for API parity.
+        # Real Paystack URLs end with an access code, not the merchant reference. Mirror that
+        # here so the agent/model cannot learn to extract the reference from the URL path.
+        access_code = "PAY_" + secrets.token_hex(8).upper()
         _ = metadata
         return (
-            f"https://checkout.paystack.test/{reference}"
+            f"https://checkout.paystack.test/{access_code}"
             f"?email={email}&amount_kobo={amount_kobo}&currency={currency}"
-            f"&callback={callback_url}"
+            f"&callback={callback_url}&reference={reference}"
         )
 
     def verify(self, reference: str) -> VerifyResult:

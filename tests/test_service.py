@@ -163,3 +163,15 @@ def test_gate_check_in(env):
     again = svc.check_in(code=code, staff_pin="4321")
     assert again["result"] == "REJECT" and again["reason"] == "Already used"
     assert svc.check_in(code="EKO-FAKE-CODE", staff_pin="4321")["result"] == "REJECT"
+
+
+def test_reference_is_not_extractable_from_payment_url(env):
+    svc, *_ = env
+    o = buy(svc)
+    assert o["ok"]
+    # Real Paystack URLs end with an access code, not the merchant reference. The agent must save
+    # the reference from the create_order result instead of reading it from the URL.
+    url_path = o["payment_url"].split("?")[0].rsplit("/", 1)[-1]
+    assert url_path != o["reference"]
+    assert o["reference"].startswith("EKO-")
+    assert "reference=" + o["reference"] in o["payment_url"]

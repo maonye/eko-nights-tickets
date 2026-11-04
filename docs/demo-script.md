@@ -2,6 +2,11 @@
 
 Have the Google Sheet open next to the simulator so viewers see rows appear.
 
+For step-by-step messages and expected outcomes, see:
+
+- `buyer-test-script.md` — the full purchase flow
+- `gate-staff-test-script.md` — door check-in with the staff PIN
+
 **0:00 Intro (15s).** Eko Nights sells tickets on WhatsApp. One job: get the right person a
 valid ticket, from browsing to the gate.
 
