@@ -1,36 +1,41 @@
 # Eko Nights tickets: a WhatsApp ticket desk on Chord
 
 A Chord teammate that sells event tickets on WhatsApp for **Eko Nights**, a fictional Lagos
-events organiser. Customers browse verified events, choose who receives each ticket (themselves,
-one other number, or split across several), pay through **Paystack test mode**, and every holder
-gets their own single-use code. Gate staff check codes in through the same chat. Orders and
-tickets land in a **Google Sheet** the organiser can watch live.
+events organiser. Customers browse verified events, choose who holds each ticket at checkout
+(themselves, one other number, or split across several), pay through **Paystack test mode**, and
+every holder gets their own single-use code. Gate staff check codes in through the same chat.
+Orders and tickets land in a **Google Sheet** the organiser can watch live.
 
 All data is made up. Only Paystack test keys are used; the app refuses to start with a live key.
 
+Tickets are assigned to holders at checkout; the agent cannot send WhatsApp messages to other
+numbers automatically. Holders collect tickets by messaging the number and asking for "my tickets",
+or the buyer shares their ticket link with them.
+
 ## How it fits together
 
-```
-WhatsApp simulator ──► Chord teammate ──(MCP, Streamable HTTP, bearer token)──► this service
-                        skill: eko-nights-tickets                                │
-                                                                                 ├─► Paystack (test): initialise + verify
-                                                                                 ├─► Google Sheet: events, tiers, orders, tickets
-Paystack ──(webhook, HMAC SHA512)──► /webhooks/paystack ─────────────────────────┤
-Holder's browser ──► /t/{code} (ticket page with QR)                             │
-Buyer after paying ──► /paid (Paystack callback, re-verifies)  ◄─────────────────┘
+```mermaid
+flowchart LR
+    A[WhatsApp simulator] -->|message| B[Chord teammate]
+    B -->|MCP Streamable HTTP<br/>bearer token| C[Eko Nights service]
+    C -->|test API| D[Paystack]
+    C -->|service account| E[Google Sheet]
+    D -->|webhook HMAC SHA512| C
+    C -->|ticket page / QR| F[Holder's browser]
+    C -->|callback| G[/paid page]
 ```
 
 Chord connects custom tools as a remote MCP server, so the "custom tool" here is one FastAPI
 service exposing six MCP tools:
 
-| Tool | What it does |
-| --- | --- |
-| `list_events` | Verified, on-sale events with tiers, prices, limits and stock (unverified events are never returned) |
-| `create_order` | Validates quantity and recipients, holds stock, creates a Paystack payment link |
-| `check_payment` | Verifies with Paystack; on success issues one ticket per holder (idempotent) |
-| `my_tickets` | Tickets held by a number, so recipients can collect theirs |
-| `cancel_order` | Releases an unpaid hold, checking Paystack first so a just-made payment is not lost |
-| `check_in` | Gate staff only (PIN): admits a code once, rejects reuse or unknown codes |
+| Tool            | What it does                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `list_events`   | Verified, on-sale events with tiers, prices, limits and stock (unverified events are never returned) |
+| `create_order`  | Validates quantity and recipients, holds stock, creates a Paystack payment link                      |
+| `check_payment` | Verifies with Paystack; on success issues one ticket per holder (idempotent)                         |
+| `my_tickets`    | Tickets held by a number, so recipients can collect theirs                                           |
+| `cancel_order`  | Releases an unpaid hold, checking Paystack first so a just-made payment is not lost                  |
+| `check_in`      | Gate staff only (PIN): admits a code once, rejects reuse or unknown codes                            |
 
 ## Repo layout
 
@@ -110,7 +115,10 @@ the service before recording or demoing.
 ## Design choices
 
 - **Holders are fixed at checkout.** The buyer decides before paying, so each person gets their
-  own code from the start and there is nothing to forward afterwards.
+  own code from the start and there is nothing to reassign afterwards.
+- **Tickets are not forwarded automatically.** Chord has no API to send WhatsApp messages to
+  arbitrary numbers. Holders collect tickets by messaging the number and asking for "my tickets",
+  or the buyer shares their ticket link.
 - **Verification before issue.** Tickets are only issued after Paystack's verify endpoint
   confirms success and the amount and currency match the order. The webhook triggers the same
   check rather than trusting its own body.
@@ -127,16 +135,32 @@ the service before recording or demoing.
 - **Identity comes from the model.** Tools take `buyer_phone` as an argument, so they trust the
   agent to pass the number it is chatting with. In production the number should come from the
   channel, not the model. See the field notes.
-- **Recipients are not messaged automatically.** They collect tickets by messaging the number and
-  asking for "my tickets". Proactive delivery would need an approved WhatsApp template.
+- **No proactive WhatsApp delivery.** Chord cannot send outbound WhatsApp messages to arbitrary
+  numbers, so the agent cannot forward tickets. Holders must message in or receive a shared link.
 - **Single instance.** Stock is protected by an in-process lock and a Google Sheet. That is fine
   for a demo, not for a big on-sale; production needs a database with transactions.
 - **Out of scope by design:** organiser onboarding and verification workflow, refunds, holder
   changes after payment, resale, seating, offline check-in.
 
+## Future improvements
+
+- **Channel-derived identity.** When Chord exposes the sender's WhatsApp number in MCP context,
+  override `buyer_phone` so the agent cannot be tricked into revealing another person's tickets.
+- **Database backend.** Replace Google Sheets with PostgreSQL + row-level locking before a real
+  on-sale.
+- **Retry wrapper for Paystack.** Add `tenacity` retries around `initialize` and `verify` for
+  transient timeouts.
+- **Outbound WhatsApp templates.** If Chord later supports approved templates or a send-to-number
+  API, implement proactive ticket delivery to assigned holders.
+- **Refund endpoint.** Add a staff-only `refund_order` tool once the Paystack refund flow is
+  defined.
+
 ## How I used AI tools
 
-<!-- Edit this to reflect what you actually did. -->
 The first draft of the service, tests, skill files and docs was produced with Claude (Anthropic)
-from my brief and product decisions. I reviewed it, deployed it, connected it to Chord and tested
-it end to end; the field notes are my own record of what happened.
+from my brief and product decisions. I then used GitHub Copilot to review the submission against
+the TSG Labs rubric, deploy the service on Render, register the MCP server with Chord, debug
+Windows/WSL and Git authentication issues, investigate the Chord API and WhatsApp simulator
+behaviour, and refine the skill instructions and documentation. I reviewed every change manually,
+ran the test suite, and tested the agent in the Chord simulator. The field notes are my own
+record of what happened.

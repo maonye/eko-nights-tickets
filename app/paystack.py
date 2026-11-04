@@ -94,7 +94,15 @@ class FakePaystack:
         if self.fail_initialize:
             raise PaystackError("Simulated Paystack outage")
         self.initialized[reference] = amount_kobo
-        return f"https://checkout.paystack.test/{reference}"
+        # Keep the signature identical to PaystackClient.initialize; include key params in the
+        # fake URL so tests can inspect them without parsing metadata. metadata is intentionally
+        # not serialized into the URL to keep URLs short; it is accepted for API parity.
+        _ = metadata
+        return (
+            f"https://checkout.paystack.test/{reference}"
+            f"?email={email}&amount_kobo={amount_kobo}&currency={currency}"
+            f"&callback={callback_url}"
+        )
 
     def verify(self, reference: str) -> VerifyResult:
         if self.fail_verify:

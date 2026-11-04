@@ -134,69 +134,31 @@ class TicketService:
 
     def create_order(self, *, event_id: str, tier_id: str, quantity: int, buyer_phone: str,
                      recipients: list[dict] | None = None, buyer_email: str | None = None) -> dict:
-        try:
-            buyer = normalise_phone(buyer_phone)
-        except InvalidPhone as exc:
-            return error("INVALID_BUYER_PHONE", str(exc), "Ask the customer to confirm their WhatsApp number.")
+        buyer, err = self._normalise_buyer(buyer_phone)
+        if err:
+            return err
 
-        events, tiers = self._events(), self._tiers()
-        event, tier = events.get(event_id), tiers.get(tier_id)
-        if not event:
-            return error("EVENT_NOT_FOUND", f"No event with id {event_id}", "Call list_events and use an event_id from it.")
-        if not (_truthy(event["verified"]) and _truthy(event["on_sale"])):
-            return error("EVENT_NOT_AVAILABLE", "This event is not verified or not on sale.",
-                         "Tell the customer we only sell tickets for verified events and offer the ones we have.")
-        if not tier or tier["event_id"] != event_id:
-            return error("TIER_NOT_FOUND", f"Tier {tier_id} is not part of {event_id}", "Call list_events and pick a tier from that event.")
+        event, tier, err = self._resolve_event_tier(event_id, tier_id)
+        if err:
+            return err
 
-        try:
-            quantity = int(quantity)
-        except (TypeError, ValueError):
-            return error("INVALID_QUANTITY", "Quantity must be a whole number.", "Ask how many tickets they want.")
-        max_per_order = int(tier["max_per_order"])
-        if quantity < 1 or quantity > max_per_order:
-            return error("INVALID_QUANTITY", f"Quantity must be between 1 and {max_per_order} for {tier['name']}.",
-                         f"Ask the customer to choose 1 to {max_per_order} tickets, or split into separate orders.")
+        quantity, err = self._resolve_quantity(quantity, tier)
+        if err:
+            return err
 
         assignment = self._assign(buyer, quantity, recipients or [])
         if not assignment["ok"]:
             return assignment
         slots = assignment["slots"]
 
-        with self._lock:
-            orders = self._expire_stale_holds(self._orders())
-            left = self._remaining(tier, orders)
-            if left < quantity:
-                return error("NOT_ENOUGH_TICKETS",
-                             f"Only {left} {tier['name']} ticket(s) left." if left else f"{tier['name']} is sold out.",
-                             "Offer the remaining quantity or another tier from list_events.", remaining=left)
+        order_id, reference, amount_kobo, expires, err = self._hold_stock(event, tier, quantity, buyer, slots, buyer_email)
+        if err:
+            return err
 
-            now = self.clock()
-            order_id = "ORD-" + secrets.token_hex(4).upper()
-            reference = f"EKO-{order_id[4:]}-{secrets.token_hex(2).upper()}"
-            amount_kobo = int(tier["price_ngn"]) * 100 * quantity
-            expires = now + timedelta(minutes=self.settings.hold_minutes)
-            self.store.append("orders", {
-                "order_id": order_id, "reference": reference, "event_id": event_id, "tier_id": tier_id,
-                "quantity": quantity, "buyer_phone": buyer, "buyer_email": buyer_email or "",
-                "recipients_json": json.dumps(slots), "amount_kobo": amount_kobo, "status": PENDING,
-                "paystack_status": "", "payment_url": "", "created_at": _iso(now),
-                "expires_at": _iso(expires), "paid_at": "", "note": "",
-            })
-
-        email = buyer_email or f"{buyer.lstrip('+')}@{self.settings.placeholder_email_domain}"
-        try:
-            url = self.paystack.initialize(
-                email=email, amount_kobo=amount_kobo, reference=reference,
-                callback_url=f"{self.settings.public_base_url}/paid", currency=self.settings.currency,
-                metadata={"order_id": order_id, "event_id": event_id, "tier_id": tier_id,
-                          "quantity": quantity, "buyer_phone": buyer},
-            )
-        except PaystackError as exc:
-            self.store.update("orders", "order_id", order_id, {"status": INIT_FAILED, "note": str(exc)[:200]})
-            return error("PAYMENT_PROVIDER_UNAVAILABLE",
-                         "We could not open a payment page just now. No money has been taken and the tickets have been released.",
-                         "Apologise, and offer to try again in a minute.")
+        url, err = self._create_paystack_link(order_id, reference, amount_kobo, buyer_email or "", buyer)
+        if err:
+            self.store.update("orders", "order_id", order_id, {"status": INIT_FAILED, "note": err["error"]["message"][:200]})
+            return err
 
         self.store.update("orders", "order_id", order_id, {"payment_url": url})
         return {
@@ -206,6 +168,77 @@ class TicketService:
             "hold_minutes": self.settings.hold_minutes,
             "ticket_holders": self._summarise_slots(slots, buyer),
         }
+
+    def _normalise_buyer(self, buyer_phone: str) -> tuple[str, dict | None]:
+        try:
+            return normalise_phone(buyer_phone), None
+        except InvalidPhone as exc:
+            return "", error("INVALID_BUYER_PHONE", str(exc), "Ask the customer to confirm their WhatsApp number.")
+
+    def _resolve_event_tier(self, event_id: str, tier_id: str) -> tuple[dict, dict, dict | None]:
+        events, tiers = self._events(), self._tiers()
+        event = events.get(event_id)
+        if not event:
+            return {}, {}, error("EVENT_NOT_FOUND", f"No event with id {event_id}", "Call list_events and use an event_id from it.")
+        if not (_truthy(event["verified"]) and _truthy(event["on_sale"])):
+            return {}, {}, error("EVENT_NOT_AVAILABLE", "This event is not verified or not on sale.",
+                                 "Tell the customer we only sell tickets for verified events and offer the ones we have.")
+        tier = tiers.get(tier_id)
+        if not tier or tier["event_id"] != event_id:
+            return {}, {}, error("TIER_NOT_FOUND", f"Tier {tier_id} is not part of {event_id}", "Call list_events and pick a tier from that event.")
+        return event, tier, None
+
+    def _resolve_quantity(self, quantity, tier: dict) -> tuple[int, dict | None]:
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            return 0, error("INVALID_QUANTITY", "Quantity must be a whole number.", "Ask how many tickets they want.")
+        max_per_order = int(tier["max_per_order"])
+        if quantity < 1 or quantity > max_per_order:
+            return 0, error("INVALID_QUANTITY", f"Quantity must be between 1 and {max_per_order} for {tier['name']}.",
+                            f"Ask the customer to choose 1 to {max_per_order} tickets, or split into separate orders.")
+        return quantity, None
+
+    def _hold_stock(self, event: dict, tier: dict, quantity: int, buyer: str, slots: list[dict],
+                    buyer_email: str | None) -> tuple[str, str, int, datetime, dict | None]:
+        with self._lock:
+            orders = self._expire_stale_holds(self._orders())
+            left = self._remaining(tier, orders)
+            if left < quantity:
+                return "", "", 0, datetime.min, error(
+                    "NOT_ENOUGH_TICKETS",
+                    f"Only {left} {tier['name']} ticket(s) left." if left else f"{tier['name']} is sold out.",
+                    "Offer the remaining quantity or another tier from list_events.", remaining=left)
+
+            now = self.clock()
+            order_id = "ORD-" + secrets.token_hex(4).upper()
+            reference = f"EKO-{order_id[4:]}-{secrets.token_hex(2).upper()}"
+            amount_kobo = int(tier["price_ngn"]) * 100 * quantity
+            expires = now + timedelta(minutes=self.settings.hold_minutes)
+            self.store.append("orders", {
+                "order_id": order_id, "reference": reference, "event_id": event["event_id"], "tier_id": tier["tier_id"],
+                "quantity": quantity, "buyer_phone": buyer, "buyer_email": buyer_email or "",
+                "recipients_json": json.dumps(slots), "amount_kobo": amount_kobo, "status": PENDING,
+                "paystack_status": "", "payment_url": "", "created_at": _iso(now),
+                "expires_at": _iso(expires), "paid_at": "", "note": "",
+            })
+        return order_id, reference, amount_kobo, expires, None
+
+    def _create_paystack_link(self, order_id: str, reference: str, amount_kobo: int, buyer_email: str,
+                              buyer: str) -> tuple[str, dict | None]:
+        email = buyer_email or f"{buyer.lstrip('+')}@{self.settings.placeholder_email_domain}"
+        try:
+            url = self.paystack.initialize(
+                email=email, amount_kobo=amount_kobo, reference=reference,
+                callback_url=f"{self.settings.public_base_url}/paid", currency=self.settings.currency,
+                metadata={"order_id": order_id, "event_id": "", "tier_id": "",
+                          "quantity": 0, "buyer_phone": buyer},
+            )
+        except PaystackError:
+            return "", error("PAYMENT_PROVIDER_UNAVAILABLE",
+                             "We could not open a payment page just now. No money has been taken and the tickets have been released.",
+                             "Apologise, and offer to try again in a minute.")
+        return url, None
 
     def _assign(self, buyer: str, quantity: int, recipients: list[dict]) -> dict:
         """Work out who holds each ticket.
@@ -284,14 +317,9 @@ class TicketService:
     def _settle(self, order: dict) -> dict:
         with self._lock:
             order = self._find_order(order["reference"])  # re-read inside the lock
-            if order["status"] == PAID:
-                return self._paid_response(order, already=True)
-            if order["status"] in (CANCELLED, INIT_FAILED):
-                return error("ORDER_CLOSED", f"This order is {order['status'].replace('_', ' ')}.",
-                             "Offer to start a new order.")
-            if order["status"] == NEEDS_REVIEW:
-                return error("NEEDS_REVIEW", "Payment was received but needs a quick check by the Eko Nights team.",
-                             "Reassure the customer their money is safe and hand over to a human.", escalate=True)
+            early = self._settle_early(order)
+            if early:
+                return early
 
             try:
                 result = self.paystack.verify(order["reference"])
@@ -303,44 +331,61 @@ class TicketService:
             expected = int(order["amount_kobo"])
 
             if result.status == "success":
-                if result.amount_kobo != expected or result.currency.upper() != self.settings.currency:
-                    self.store.update("orders", "order_id", order["order_id"], {
-                        "status": NEEDS_REVIEW,
-                        "note": f"Amount mismatch: expected {expected} got {result.amount_kobo} {result.currency}"})
-                    return error("NEEDS_REVIEW", "The amount paid does not match the order.",
-                                 "Do not issue tickets. Reassure the customer and hand over to a human.", escalate=True)
-                orders = self._orders()
-                tier = self._tiers()[order["tier_id"]]
-                if order["status"] in (EXPIRED, FAILED) and self._remaining(tier, orders, exclude_order=order["order_id"]) < int(order["quantity"]):
-                    self.store.update("orders", "order_id", order["order_id"], {
-                        "status": NEEDS_REVIEW, "note": "Paid after hold expired and tier is now full. Refund or upgrade."})
-                    return error("NEEDS_REVIEW", "Payment arrived after the hold expired and those tickets have since sold.",
-                                 "Apologise, say the team will refund or offer an alternative today, and hand over to a human.",
-                                 escalate=True)
-                self._issue(order)
-                self.store.update("orders", "order_id", order["order_id"], {
-                    "status": PAID, "paid_at": result.paid_at or _iso(self.clock())})
-                order = self._find_order(order["reference"])
-                return self._paid_response(order, already=False)
-
+                return self._settle_success(order, result, expected)
             if result.status in ("failed", "reversed"):
-                self.store.update("orders", "order_id", order["order_id"], {"status": FAILED,
-                                                                            "note": result.gateway_response[:200]})
-                return error("PAYMENT_FAILED", f"Paystack reports the payment {result.status}"
-                             + (f" ({result.gateway_response})." if result.gateway_response else "."),
-                             "No tickets were issued. Offer to start a fresh order, perhaps with a different card or bank transfer.",
-                             status=FAILED)
+                return self._settle_failed(order, result)
+            return self._settle_awaiting(order)
 
-            # Not paid yet
-            exp = _parse(order["expires_at"])
-            if order["status"] == EXPIRED or (exp and exp <= self.clock()):
-                self.store.update("orders", "order_id", order["order_id"], {"status": EXPIRED})
-                return error("HOLD_EXPIRED", "The payment window closed before payment was completed. The tickets were released.",
-                             "Offer to start a new order.", status=EXPIRED)
-            minutes_left = max(int((exp - self.clock()).total_seconds() // 60), 0) if exp else 0
-            return {"ok": True, "status": "awaiting_payment", "reference": order["reference"],
-                    "payment_url": order["payment_url"], "minutes_left": minutes_left,
-                    "message": "Payment not completed yet. The tickets are still held."}
+    def _settle_early(self, order: dict) -> dict | None:
+        if order["status"] == PAID:
+            return self._paid_response(order, already=True)
+        if order["status"] in (CANCELLED, INIT_FAILED):
+            return error("ORDER_CLOSED", f"This order is {order['status'].replace('_', ' ')}.",
+                         "Offer to start a new order.")
+        if order["status"] == NEEDS_REVIEW:
+            return error("NEEDS_REVIEW", "Payment was received but needs a quick check by the Eko Nights team.",
+                         "Reassure the customer their money is safe and hand over to a human.", escalate=True)
+        return None
+
+    def _settle_success(self, order: dict, result, expected: int) -> dict:
+        if result.amount_kobo != expected or result.currency.upper() != self.settings.currency:
+            self.store.update("orders", "order_id", order["order_id"], {
+                "status": NEEDS_REVIEW,
+                "note": f"Amount mismatch: expected {expected} got {result.amount_kobo} {result.currency}"})
+            return error("NEEDS_REVIEW", "The amount paid does not match the order.",
+                         "Do not issue tickets. Reassure the customer and hand over to a human.", escalate=True)
+        orders = self._orders()
+        tier = self._tiers()[order["tier_id"]]
+        if order["status"] in (EXPIRED, FAILED) and self._remaining(tier, orders, exclude_order=order["order_id"]) < int(order["quantity"]):
+            self.store.update("orders", "order_id", order["order_id"], {
+                "status": NEEDS_REVIEW, "note": "Paid after hold expired and tier is now full. Refund or upgrade."})
+            return error("NEEDS_REVIEW", "Payment arrived after the hold expired and those tickets have since sold.",
+                         "Apologise, say the team will refund or offer an alternative today, and hand over to a human.",
+                         escalate=True)
+        self._issue(order)
+        self.store.update("orders", "order_id", order["order_id"], {
+            "status": PAID, "paid_at": result.paid_at or _iso(self.clock())})
+        order = self._find_order(order["reference"])
+        return self._paid_response(order, already=False)
+
+    def _settle_failed(self, order: dict, result) -> dict:
+        self.store.update("orders", "order_id", order["order_id"], {"status": FAILED,
+                                                                    "note": result.gateway_response[:200]})
+        return error("PAYMENT_FAILED", f"Paystack reports the payment {result.status}"
+                     + (f" ({result.gateway_response})." if result.gateway_response else "."),
+                     "No tickets were issued. Offer to start a fresh order, perhaps with a different card or bank transfer.",
+                     status=FAILED)
+
+    def _settle_awaiting(self, order: dict) -> dict:
+        exp = _parse(order["expires_at"])
+        if order["status"] == EXPIRED or (exp and exp <= self.clock()):
+            self.store.update("orders", "order_id", order["order_id"], {"status": EXPIRED})
+            return error("HOLD_EXPIRED", "The payment window closed before payment was completed. The tickets were released.",
+                         "Offer to start a new order.", status=EXPIRED)
+        minutes_left = max(int((exp - self.clock()).total_seconds() // 60), 0) if exp else 0
+        return {"ok": True, "status": "awaiting_payment", "reference": order["reference"],
+                "payment_url": order["payment_url"], "minutes_left": minutes_left,
+                "message": "Payment not completed yet. The tickets are still held."}
 
     def _issue(self, order: dict) -> None:
         existing = [t for t in self.store.all("tickets") if t["order_id"] == order["order_id"]]
@@ -381,8 +426,8 @@ class TicketService:
             h["tickets"].append(self._ticket_view(t, events, tiers))
         return {"ok": True, "status": PAID, "already_confirmed": already, "reference": order["reference"],
                 "total": _naira(int(order["amount_kobo"])), "holders": list(by_holder.values()),
-                "recipient_note": "Recipients who are not the buyer can message this WhatsApp number and ask for "
-                                  "'my tickets' to receive theirs."}
+                "recipient_note": "Tickets are not sent automatically. Share each holder's ticket link with them, "
+                                  "or tell them to message this WhatsApp number and ask for 'my tickets'."}
 
     # --------------------------------------------------------------- tickets
 
