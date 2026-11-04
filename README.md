@@ -1,16 +1,19 @@
 # Eko Nights tickets: a WhatsApp ticket desk on Chord
 
-A Chord teammate that sells event tickets on WhatsApp for **Eko Nights**, a fictional Lagos
-events organiser. Customers browse verified events, choose who holds each ticket at checkout
-(themselves, one other number, or split across several), pay through **Paystack test mode**, and
-every holder gets their own single-use code. Gate staff check codes in through the same chat.
-Orders and tickets land in a **Google Sheet** the organiser can watch live.
+Imagine a Lagos Friday night. The lineup just dropped, the group chat is buzzing, and everyone
+needs a ticket before the early-bird tier sells out. **Eko Nights** is a fictional events organiser
+that turns that chaos into a calm, two-minute WhatsApp conversation. A Chord teammate answers
+questions, shows live stock, takes payment through **Paystack test mode**, and issues a
+single-use ticket code to every holder. Gate staff check people in with the same chat. Every
+order lands in a **Google Sheet** the organiser can watch in real time.
 
-All data is made up. Only Paystack test keys are used; the app refuses to start with a live key.
+This repo is the engine behind that teammate: a FastAPI service that exposes six MCP tools to
+Chord, backed by Paystack for payments and Google Sheets for storage. All event data is made up.
+Only Paystack test keys are accepted; the service refuses to start if it sees a live key.
 
-Tickets are assigned to holders at checkout; the agent cannot send WhatsApp messages to other
-numbers automatically. Holders collect tickets by messaging the number and asking for "my tickets",
-or the buyer shares their ticket link with them.
+Tickets are assigned to holders at checkout, not forwarded afterwards. Chord cannot send outbound
+WhatsApp messages to arbitrary numbers, so each holder collects their ticket by messaging the
+number and asking for "my tickets", or the buyer shares their ticket link with them.
 
 ## How it fits together
 
@@ -22,7 +25,7 @@ flowchart LR
     C -->|service account| E[Google Sheet]
     D -->|webhook HMAC SHA512| C
     C -->|ticket page / QR| F[Holder's browser]
-    C -->|callback| G[/paid page]
+    C -->|callback| G[paid page]
 ```
 
 Chord connects custom tools as a remote MCP server, so the "custom tool" here is one FastAPI
