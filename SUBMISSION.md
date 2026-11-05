@@ -28,7 +28,7 @@ offline check-in out of scope to keep the purchase-to-entry journey reliable and
 
 ## 3. Code
 
-Link here: [maonye/eko-nights-tickets](https://github.com/maonye/eko-nights-tickets)
+**Link here:** [maonye/eko-nights-tickets](https://github.com/maonye/eko-nights-tickets)
 
 See `README.md` for architecture, setup, deployment and AI usage. The service is a FastAPI app
 exposing six MCP tools to Chord: `list_events`, `create_order`, `check_payment`, `my_tickets`,
@@ -38,7 +38,7 @@ suite runs offline with 33 passing tests.
 
 ## 4. Recording
 
-Link here: [Eko Nights Tix Demo - Chord - 5 November 2026](https://www.loom.com/share/bec03331cc604196a788a5b9b0f87186)
+**Link here:** [Eko Nights Tix Demo - Chord - 5 November 2026](https://www.loom.com/share/bec03331cc604196a788a5b9b0f87186)
 
 Script and conversation flow are in `docs/demo-script.md`. Step-by-step simulator test scripts
 are in `docs/buyer-test-script.md` and `docs/gate-staff-test-script.md`.
