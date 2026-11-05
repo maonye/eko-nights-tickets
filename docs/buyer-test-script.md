@@ -9,10 +9,10 @@ Use this in the Chord WhatsApp simulator to walk through a full purchase.
 
 ## Conversation
 
-1. **Start:** `What events are available?`
-   - Expected: agent lists only verified events (Afrobeats, Comedy). The unverified rave is not offered.
+1. **Start:** `Buy 3 VIP tickets for me and two friends`
+   - Expected: agent asks which event, or confirms the Afrobeats VIP tier and asks who holds each ticket.
 
-2. **Choose event and tier:** `3 VIP tickets for the Afrobeats night.`
+2. **Choose event and tier (if needed):** `3 VIP tickets for the Afrobeats night.`
    - Expected: agent confirms the tier, price per ticket, and asks how many.
 
 3. **Assign holders:** `One for me, one for Tobi on 0812 000 1111, and one for my sister Ada on 0701 111 2222.`

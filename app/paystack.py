@@ -87,6 +87,7 @@ class FakePaystack:
     """Deterministic stand-in used by tests and the offline dev mode."""
     outcomes: dict = field(default_factory=dict)    # reference -> VerifyResult
     initialized: dict = field(default_factory=dict) # reference -> amount_kobo
+    last_metadata: dict | None = None
     fail_initialize: bool = False
     fail_verify: bool = False
     secret: str = "sk_test_fake"
@@ -95,10 +96,10 @@ class FakePaystack:
         if self.fail_initialize:
             raise PaystackError("Simulated Paystack outage")
         self.initialized[reference] = amount_kobo
+        self.last_metadata = metadata
         # Real Paystack URLs end with an access code, not the merchant reference. Mirror that
         # here so the agent/model cannot learn to extract the reference from the URL path.
         access_code = "PAY_" + secrets.token_hex(8).upper()
-        _ = metadata
         return (
             f"https://checkout.paystack.test/{access_code}"
             f"?email={email}&amount_kobo={amount_kobo}&currency={currency}"

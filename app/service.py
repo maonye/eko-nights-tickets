@@ -155,7 +155,10 @@ class TicketService:
         if err:
             return err
 
-        url, err = self._create_paystack_link(order_id, reference, amount_kobo, buyer_email or "", buyer)
+        url, err = self._create_paystack_link(
+            order_id, reference, amount_kobo, buyer_email or "", buyer,
+            event_id=event["event_id"], tier_id=tier["tier_id"], quantity=quantity,
+        )
         if err:
             self.store.update("orders", "order_id", order_id, {"status": INIT_FAILED, "note": err["error"]["message"][:200]})
             return err
@@ -225,14 +228,14 @@ class TicketService:
         return order_id, reference, amount_kobo, expires, None
 
     def _create_paystack_link(self, order_id: str, reference: str, amount_kobo: int, buyer_email: str,
-                              buyer: str) -> tuple[str, dict | None]:
+                              buyer: str, *, event_id: str, tier_id: str, quantity: int) -> tuple[str, dict | None]:
         email = buyer_email or f"{buyer.lstrip('+')}@{self.settings.placeholder_email_domain}"
         try:
             url = self.paystack.initialize(
                 email=email, amount_kobo=amount_kobo, reference=reference,
                 callback_url=f"{self.settings.public_base_url}/paid", currency=self.settings.currency,
-                metadata={"order_id": order_id, "event_id": "", "tier_id": "",
-                          "quantity": 0, "buyer_phone": buyer},
+                metadata={"order_id": order_id, "event_id": event_id, "tier_id": tier_id,
+                          "quantity": quantity, "buyer_phone": buyer},
             )
         except PaystackError:
             return "", error("PAYMENT_PROVIDER_UNAVAILABLE",

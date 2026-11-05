@@ -158,11 +158,11 @@ def test_gate_check_in(env):
     ps.pay(o["reference"])
     code = svc.check_payment(reference=o["reference"], buyer_phone=BUYER)["holders"][0]["tickets"][0]["code"]
     assert svc.check_in(code=code, staff_pin="0000")["error"]["code"] == "NOT_AUTHORISED"
-    first = svc.check_in(code=code.lower().replace("-", " "), staff_pin="4321")
+    first = svc.check_in(code=code.lower().replace("-", " "), staff_pin="0604")
     assert first["result"] == "ADMIT" and first["ticket"]["status"] == CHECKED_IN
-    again = svc.check_in(code=code, staff_pin="4321")
+    again = svc.check_in(code=code, staff_pin="0604")
     assert again["result"] == "REJECT" and again["reason"] == "Already used"
-    assert svc.check_in(code="EKO-FAKE-CODE", staff_pin="4321")["result"] == "REJECT"
+    assert svc.check_in(code="EKO-FAKE-CODE", staff_pin="0604")["result"] == "REJECT"
 
 
 def test_reference_is_not_extractable_from_payment_url(env):
@@ -175,3 +175,16 @@ def test_reference_is_not_extractable_from_payment_url(env):
     assert url_path != o["reference"]
     assert o["reference"].startswith("EKO-")
     assert "reference=" + o["reference"] in o["payment_url"]
+
+
+def test_paystack_metadata_includes_order_details(env):
+    svc, ps, *_ = env
+    o = buy(svc, quantity=3)
+    assert o["ok"]
+    assert ps.last_metadata == {
+        "order_id": o["order_id"],
+        "event_id": "EVT-AFRO",
+        "tier_id": "AFRO-REG",
+        "quantity": 3,
+        "buyer_phone": "+2348031234567",
+    }

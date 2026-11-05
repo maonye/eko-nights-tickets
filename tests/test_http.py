@@ -75,6 +75,6 @@ def test_full_flow_over_mcp(client):
     assert c.get("/t/EKO-NOPE-NOPE").status_code == 404
     assert "Payment received" in c.get(f"/paid?reference={order['reference']}").text
 
-    gate = call(c, "check_in", {"code": code, "staff_pin": "4321"})
+    gate = call(c, "check_in", {"code": code, "staff_pin": "0604"})
     assert gate["result"] == "ADMIT"
-    assert call(c, "check_in", {"code": code, "staff_pin": "4321"})["result"] == "REJECT"
+    assert call(c, "check_in", {"code": code, "staff_pin": "0604"})["result"] == "REJECT"

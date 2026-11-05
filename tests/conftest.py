@@ -23,7 +23,7 @@ class Clock:
 def make_settings(**over):
     base = dict(store_backend="memory", google_sheet_id="", google_service_account_json="",
                 paystack_secret_key="sk_test_fake", paystack_mode="fake", allow_live_keys=False,
-                mcp_bearer_token="secret-token", staff_pin="4321", public_base_url="https://tix.example",
+                mcp_bearer_token="secret-token", staff_pin="0604", public_base_url="https://tix.example",
                 hold_minutes=15, placeholder_email_domain="example.com")
     base.update(over)
     return Settings(**base)
