@@ -1,4 +1,4 @@
-# TSG Labs Build Exercise: Eko Nights Tickets
+# TSG Labs Build Exercise: Eko Nights Tix
 
 ## 1. Role and problem statement
 
