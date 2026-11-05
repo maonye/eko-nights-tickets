@@ -8,8 +8,9 @@ Lagos audiences buy tickets for friends inside WhatsApp, but event organisers lo
 replies, lose trust when screenshots are shared at the gate, and lose time reconciling payments
 from scattered DMs. This agent turns that thread into a complete purchase: customers browse
 verified events, choose who holds each ticket at checkout, pay through Paystack, and receive a
-single-use ticket code. Gate staff check codes in through the same WhatsApp number, and every
-order is written to a Google Sheet the organiser can watch live.
+single-use ticket code, which gate staff check in through the same WhatsApp number. It's worth
+paying for because organisers recover sales lost to slow replies, stop chasing payments by hand,
+and can trust that every code at the door was paid for once.
 
 I left organiser onboarding, refunds, moving tickets after payment, resale and offline check-in
 out of scope to keep the purchase-to-entry journey reliable and demoable.
@@ -45,68 +46,75 @@ are in `docs/buyer-test-script.md` and `docs/gate-staff-test-script.md`.
 
 ### 1. Agent lost the order reference and tried to read it from the Paystack URL
 
-After a refactor, the agent started failing to find payments and handing chats to manual input.
-The symptom was that `check_payment` was being called with a reference that did not exist in the
-sheet. I traced it to the model extracting the trailing path segment from the Paystack payment
-URL and treating it as the order reference. Real Paystack URLs end with an access code, not the
-merchant reference, so the lookup failed.
+**What happened.** Customers who paid and replied "paid" were told their order could not be
+found, and the agent fell back to asking them for a reference. `check_payment` was returning
+`ORDER_NOT_FOUND` for orders that had been created successfully moments earlier.
 
-The fix had two parts. First, I updated the skill and tool instructions to explicitly tell the
-agent to save the `EKO-…` reference returned by `create_order` and to pass that exact value to
-`check_payment`, never to read it from the URL. Second, I changed `FakePaystack.initialize` to
-mirror real Paystack URLs, putting an access code in the path and the reference only in the query
-string, and added a regression test.
+**How I found the cause.** I compared the `reference` argument in the failing `check_payment`
+call with the orders tab in the Google Sheet. It matched nothing in the sheet, but it did match
+the last segment of the Paystack checkout URL sent earlier in the same chat. Paystack checkout
+URLs end with an access code, not the merchant reference, so the model had picked the
+identifier that looked most like a reference instead of the `EKO-` value `create_order` returned.
 
-_Lesson:_ tool outputs that look like identifiers need explicit "keep this" guidance for the
-model. A structured conversation-state feature in Chord would make this class of bug impossible.
+**Fix.** The real fix was in the instructions: the skill and the `create_order` and
+`check_payment` tool descriptions now tell the agent to keep the `EKO-` reference from
+`create_order`, include it in the payment message, and never read a reference from the URL.
+I also changed the offline fake to produce Paystack-style URLs so local tests match reality,
+and added a regression test. That keeps the tests honest but cannot by itself stop the model
+making this mistake.
 
-### 2. MCP registration on Windows
+**Suggestion for Chord.** Values a later tool call depends on, like an order reference, are
+easy for the model to lose or confuse. A way for a tool result to mark a value as conversation
+state (for example "remember `reference` for this thread") would make this class of bug much
+less likely.
 
-The registration script assumed a Unix environment, and my Windows machine did not have WSL
-configured. The script failed first with `Windows Subsystem for Linux has no installed
-distributions`, then with a catastrophic WSL registration error, and later with `Python was not
-found` because Git Bash did not have `python3` on PATH. I read the script, understood the API
-calls it was making, and completed registration manually with equivalent `curl` commands in Git
-Bash. I also learned that re-running registration returns `CONFLICT` once a server is already
-registered, so I verified the existing registration instead of creating a duplicate.
+### 2. The simulator does not expose the user's phone number
 
-_Suggestion for Chord:_ provide a PowerShell or plain `curl` registration example alongside the
-bash script for Windows users.
+**What happened.** The first purchase attempt in the simulator failed before a payment link was
+created. `create_order` returned `INVALID_BUYER_PHONE` with the message "No phone number given",
+even for a customer buying tickets for themselves.
 
-### 3. Workspace ID is not visible in the Chord UI
+**How I found the cause.** The error meant the agent was calling the tool with an empty
+`buyer_phone`. I checked the conversation in Chord and the simulator's settings and found no
+sender number exposed to the agent anywhere, then confirmed in the Chord docs that I could not
+rely on the channel to supply it.
 
-`scripts/register_chord_mcp.sh` needs `WORKSPACE_ID`, but it is not shown in the teammate or
-chatbot UI. I retrieved it from `GET /v1/teammates`.
+**Fix.** I updated the skill to ask "What WhatsApp number are you messaging from?" when the
+channel does not provide it. I found no documented way to send WhatsApp messages to arbitrary
+numbers through Chord, so I couldn't build proactive forwarding. I changed the product language
+from "sending tickets" to "assigning holders at checkout", with holders collecting tickets by
+messaging in or receiving the buyer's ticket link.
 
-_Suggestion for Chord:_ show `workspace_id` on the teammate settings page and mention it in the
-MCP registration docs.
+**Risk this creates.** Because the number is typed by the user, anyone can enter another
+person's number into `my_tickets` and retrieve their ticket codes. That undercuts the
+single-use-code design until the channel supplies a verified number.
 
-### 4. WhatsApp simulator does not expose the user's phone number
+**Suggestion for Chord.** Pass the sender's verified number to MCP tool calls, so tools never
+have to trust what the model is told. For testing, let the simulator set a test phone number, or
+document that `POST /v1/external-chat/messages` with a chosen `sender_id` is the reliable path.
 
-The simulator does not pass a phone number to the agent, so `buyer_phone` was empty and even
-same-number orders could not be created. I found no documented way to send outbound WhatsApp
-messages to arbitrary numbers through Chord, so proactive "forwarding" of tickets is impossible.
+### 3. Gaps in the MCP registration docs
 
-This creates a real identity risk: because the agent has to ask for the user's number, anyone can
-type another person's phone number into `my_tickets` and retrieve their ticket codes. That
-undercuts the anti-screenshot pitch until the channel itself supplies a verified number.
+**What happened.** Two things slowed down registration. The workspace ID the API needs is not
+shown anywhere in the teammate or chat UI. And it was not obvious who supplies the bearer token:
+the docs show an `auth_token` field but do not say the integrator chooses it.
 
-I updated the skill to ask "What WhatsApp number are you messaging from?" when the channel does
-not provide it, and changed the product language from "sending tickets" to "assigning holders at
-checkout" plus sharing ticket links.
+**How I found the cause.** I retrieved the workspace ID from `GET /v1/teammates`. For the
+token, I worked out from the registration example that Chord sends whatever `auth_token` it is
+given, so I generated a random 32-byte token, set it as the service's `MCP_BEARER_TOKEN`, and
+registered with the same value. I also found that re-running registration returns `CONFLICT`,
+so I verified the existing registration rather than creating a duplicate.
 
-_Suggestion for Chord:_ expose a configurable test phone number in the simulator, or document
-that API-based testing (`POST /v1/external-chat/messages` with a chosen `sender_id`) is the
-reliable path.
+**Suggestion for Chord.** Show `workspace_id` on the teammate settings page, and add one
+sentence to the MCP guide: "The bearer token is chosen by you and must match the token your
+server checks."
 
-### 5. MCP_BEARER_TOKEN is user-generated, not provided by Chord
+### 4. Registration examples assume a Unix shell
 
-The MCP server registration docs show `auth_type: bearer` with an `auth_token` field in the
-request body, implying the caller supplies the token. I generated a random 32-byte token, set it
-as the service's `MCP_BEARER_TOKEN`, and passed the same value in the registration payload.
-
-_Suggestion for Chord:_ add one sentence in the MCP registration guide stating that the bearer
-token is chosen by the integrator and must match the server's environment.
+On Windows without WSL configured, bash-based registration failed with `Windows Subsystem for
+Linux has no installed distributions`, then `Python was not found` in Git Bash. I completed
+registration with plain `curl` commands in Git Bash. Chord's registration examples assume a Unix
+shell; a PowerShell example would help Windows builders.
 
 ## 6. Go-live note for Eko Nights
 
@@ -121,18 +129,20 @@ messaging the number and asking for "my tickets", or the buyer shares their tick
 
 **Before real customers use it:**
 
-1. **Real payments:** switch Paystack to live keys, confirm settlement to your bank account, and
-   point the live payment confirmation link at the service.
+1. **Real payments:** switch Paystack to live keys, confirm money settles into your bank account,
+   and tell Paystack where to send live payment confirmations.
 2. **A real WhatsApp number:** connect a WhatsApp Business number to Chord. If you later want to
    send tickets to holders automatically, get approved WhatsApp message templates and a Chord API
    that supports outbound messages to arbitrary numbers.
 3. **Verified customer identity:** make sure the customer's number comes from WhatsApp itself,
    not from what the agent is told, so nobody can pull up someone else's tickets.
-4. **Failed and late payments:** decide who checks orders flagged for review in the sheet each day
+4. **Staff access:** give each staff member their own check-in PIN that you can switch off,
+   instead of one shared PIN, so a leaked PIN can't be used to check tickets in.
+5. **Failed and late payments:** decide who checks orders flagged for review in the sheet each day
    and how fast refunds are made.
-5. **Alerts:** name the person who gets notified when the agent hands a chat to a human, when a
+6. **Alerts:** name the person who gets notified when the agent hands a chat to a human, when a
    payment needs review, or when the service is down.
-6. **Scale:** move from the Google Sheet to a proper database before a big on-sale.
-7. **Door plan:** test check-in on venue Wi-Fi and mobile data, keep a printed backup list, and
+7. **Scale:** move from the Google Sheet to a proper database before a big on-sale.
+8. **Door plan:** test check-in on venue Wi-Fi and mobile data, keep a printed backup list, and
    agree what staff do if the system is slow.
-8. **Policies:** confirm the refund, age limit and re-entry rules the agent quotes.
+9. **Policies:** confirm the refund, age limit and re-entry rules the agent quotes.
