@@ -119,30 +119,27 @@ shell; a PowerShell example would help Windows builders.
 ## 6. Go-live note for Eko Nights
 
 **What it does.** Customers message your WhatsApp number to see what's on, pick tickets, choose
-who holds each one at checkout, and pay through Paystack. Each holder gets their own ticket link
-and code. At the door, staff send codes to the same number with their PIN and get ADMIT or REJECT;
-a code only works once. Every order and ticket appears in your Google Sheet as it happens.
+who holds each one, and pay through Paystack. Each holder gets their own ticket link and code.
+At the door, staff send codes to the same number with their PIN and get ADMIT or REJECT; a code
+only works once. Every order and ticket appears in your Google Sheet as it happens.
 
 **What it doesn't do.** It doesn't give refunds, move tickets to another number after payment,
-create events, or send tickets to other WhatsApp numbers automatically. Holders collect tickets by
-messaging the number and asking for "my tickets", or the buyer shares their ticket link.
+create events, or message holders first. Holders collect tickets by messaging the number and
+asking for "my tickets", or the buyer shares their ticket link.
 
 **Before real customers use it:**
 
 1. **Real payments:** switch Paystack to live keys, confirm money settles into your bank account,
    and tell Paystack where to send live payment confirmations.
-2. **A real WhatsApp number:** connect a WhatsApp Business number to Chord. If you later want to
-   send tickets to holders automatically, get approved WhatsApp message templates and a Chord API
-   that supports outbound messages to arbitrary numbers.
-3. **Verified customer identity:** make sure the customer's number comes from WhatsApp itself,
-   not from what the agent is told, so nobody can pull up someone else's tickets.
-4. **Staff access:** give each staff member their own check-in PIN that you can switch off,
-   instead of one shared PIN, so a leaked PIN can't be used to check tickets in.
-5. **Failed and late payments:** decide who checks orders flagged for review in the sheet each day
-   and how fast refunds are made.
-6. **Alerts:** name the person who gets notified when the agent hands a chat to a human, when a
-   payment needs review, or when the service is down.
-7. **Scale:** move from the Google Sheet to a proper database before a big on-sale.
-8. **Door plan:** test check-in on venue Wi-Fi and mobile data, keep a printed backup list, and
-   agree what staff do if the system is slow.
-9. **Policies:** confirm the refund, age limit and re-entry rules the agent quotes.
+2. **A real WhatsApp number:** connect a WhatsApp Business number to Chord.
+3. **Verified identity:** make sure each customer's number comes from WhatsApp itself, not from
+   what they type, so nobody can pull up someone else's tickets.
+4. **Staff access:** give each staff member their own PIN that you can switch off, instead of one
+   shared PIN.
+5. **Problem payments:** decide who checks orders flagged for review in the sheet each day, and
+   how quickly refunds are made.
+6. **Alerts:** name who gets notified when a chat needs a human, a payment needs review, or the
+   service goes down.
+7. **Before the first event:** move from the Google Sheet to a proper database ahead of a big
+   on-sale, test check-in on venue Wi-Fi and mobile data with a printed backup list, and confirm
+   the refund, age and re-entry rules the agent quotes.
