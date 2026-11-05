@@ -1,4 +1,4 @@
-# Eko Nights tickets: a WhatsApp ticket desk on Chord
+# Eko Nights Tix: a WhatsApp ticket desk on Chord
 
 Imagine a Lagos Friday night. The lineup just dropped, the group chat is buzzing, and everyone
 needs a ticket before the early-bird tier sells out. **Eko Nights** is a fictional events organiser
@@ -13,7 +13,7 @@ Only Paystack test keys are accepted; the service refuses to start if it sees a 
 
 Tickets are assigned to holders at checkout, not forwarded afterwards. Chord cannot send outbound
 WhatsApp messages to arbitrary numbers, so each holder collects their ticket by messaging the
-number and asking for "my tickets", or the buyer shares their ticket link with them.
+number and asking for "my Nights Tix", or the buyer shares their ticket link with them.
 
 ## How it fits together
 
