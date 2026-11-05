@@ -38,7 +38,7 @@ suite runs offline with 33 passing tests.
 
 ## 4. Recording
 
-**Link:** [Eko Nights Tix Demo - Chord - 5 November 2026](https://www.loom.com/share/bec03331cc604196a788a5b9b0f87186)
+**Link:** [Eko Nights Tix - Test Chat - 5 November 2026](https://www.loom.com/share/e9416c10368245de980a747ffa048a15)
 
 Script and conversation flow are in `docs/demo-script.md`. Step-by-step simulator test scripts
 are in `docs/buyer-test-script.md` and `docs/gate-staff-test-script.md`.
