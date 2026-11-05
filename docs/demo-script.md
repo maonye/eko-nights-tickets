@@ -1,6 +1,9 @@
-# 3-minute recording script
+# Demo script guide
 
-Have the Google Sheet open next to the simulator so viewers see rows appear.
+Use this as a guide to the story the demo tells, not a word-for-word script. The opening
+messages and timings can vary between runs; what matters is that each beat below comes through:
+verified events only, holders chosen at checkout, a real Paystack payment, tickets issued per
+holder, and a code that admits once at the gate.
 
 For step-by-step messages and expected outcomes, see:
 
