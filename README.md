@@ -53,9 +53,12 @@ app/
   seed.py          made-up events and tiers
 skill/eko-nights-tickets/   the Chord skill (SKILL.md plus references)
 scripts/           seed the sheet, register with Chord, smoke test the deployment
-tests/             32 tests, including MCP calls over real HTTP
-docs/demo-script.md         the conversation for the 3-minute recording
-SUBMISSION.md      problem statement, go-live note, field notes template
+tests/             33 tests, including MCP calls over real HTTP
+docs/
+  demo-script.md            the conversation for the 3-minute recording
+  buyer-test-script.md      step-by-step simulator messages for a full purchase
+  gate-staff-test-script.md step-by-step simulator messages for door check-in
+SUBMISSION.md      problem statement, demo link, go-live note, field notes
 ```
 
 ## Run it locally (no accounts needed)
